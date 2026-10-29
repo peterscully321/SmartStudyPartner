@@ -1,5 +1,7 @@
 from html import escape
+from time import perf_counter
 
+import pandas as pd
 import streamlit as st
 
 from recommender import StudyRecommender
@@ -20,6 +22,91 @@ def load_recommender():
 
 def choose_topic(topic):
     st.session_state["search_query"] = topic
+
+
+def record_search_event(query, results, elapsed_ms, category_filter, level_filter, format_filter):
+    """Keep lightweight, anonymous search telemetry for the current browser session."""
+    events = st.session_state.setdefault("search_events", [])
+    signature = (
+        query.casefold(),
+        category_filter or "",
+        level_filter or "",
+        format_filter or "",
+    )
+    if events and events[-1]["signature"] == signature:
+        return
+
+    events.append(
+        {
+            "signature": signature,
+            "query": query,
+            "result_count": len(results),
+            "latency_ms": round(elapsed_ms, 2),
+            "top_subject": results[0]["Category"] if results else "No match",
+            "timestamp": pd.Timestamp.now().strftime("%H:%M:%S"),
+        }
+    )
+    del events[:-100]
+
+
+def render_live_analytics():
+    """Render session-only metrics that update whenever a new search is performed."""
+    events = st.session_state.get("search_events", [])
+    if not events:
+        return
+
+    frame = pd.DataFrame(events)
+    total_searches = len(frame)
+    unique_queries = frame["query"].nunique()
+    average_latency = frame["latency_ms"].mean()
+    no_result_rate = (frame["result_count"].eq(0).mean()) * 100
+
+    st.markdown('<div class="section-rule"></div>', unsafe_allow_html=True)
+    with st.expander("Live search insights", expanded=True):
+        st.caption(
+            "Updates in this browser session as you search. No queries are sent to an external analytics service."
+        )
+        metric_columns = st.columns(4)
+        metric_columns[0].metric("Searches", total_searches)
+        metric_columns[1].metric("Unique queries", unique_queries)
+        metric_columns[2].metric("Avg. response", f"{average_latency:.0f} ms")
+        metric_columns[3].metric("No-result rate", f"{no_result_rate:.0f}%")
+
+        chart_columns = st.columns(2)
+        with chart_columns[0]:
+            st.markdown("**Most searched keywords**")
+            query_counts = frame["query"].value_counts().head(8).rename("searches")
+            st.bar_chart(query_counts)
+        with chart_columns[1]:
+            st.markdown("**Subjects returned by search**")
+            subject_counts = (
+                frame.loc[frame["top_subject"] != "No match", "top_subject"]
+                .value_counts()
+                .head(8)
+                .rename("searches")
+            )
+            if subject_counts.empty:
+                st.info("Search a broader topic to see subject trends.")
+            else:
+                st.bar_chart(subject_counts)
+
+        recent = frame.loc[:, ["timestamp", "query", "result_count", "latency_ms", "top_subject"]].tail(10)
+        st.dataframe(
+            recent.iloc[::-1].rename(
+                columns={
+                    "timestamp": "Time",
+                    "query": "Keyword",
+                    "result_count": "Results",
+                    "latency_ms": "Response (ms)",
+                    "top_subject": "Top subject",
+                }
+            ),
+            hide_index=True,
+            use_container_width=True,
+        )
+        if st.button("Clear session insights", key="clear_search_insights"):
+            st.session_state["search_events"] = []
+            st.rerun()
 
 
 def legacy_main():
@@ -729,12 +816,21 @@ def main():
     format_filter = None if selected_format == "All formats" else selected_format
 
     if query:
+        search_started = perf_counter()
         results = recommender.recommend(
             query,
             top_n=num_results,
             category_filter=category_filter,
             level_filter=level_filter,
             format_filter=format_filter,
+        )
+        record_search_event(
+            query,
+            results,
+            (perf_counter() - search_started) * 1000,
+            category_filter,
+            level_filter,
+            format_filter,
         )
 
         st.markdown('<div class="section-rule"></div>', unsafe_allow_html=True)
@@ -786,6 +882,8 @@ def main():
                         on_click=choose_topic,
                         args=(category,),
                     )
+
+    render_live_analytics()
 
 
 if __name__ == "__main__":
