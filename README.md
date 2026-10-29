@@ -11,9 +11,10 @@ Smart Study Partner is a small Streamlit app that ranks learning-resource record
 - Choose how many results to show (1–20), with the strongest text matches first.
 - Explore a subject from the home screen; selecting it runs a search.
 - See each result's title, subject, level, format, description, tags, sample ID, and text-match score.
+- Monitor live, session-only search insights: popular keywords, returned subjects, response time, result counts, and no-result rate.
 - Run a repeatable command-line category-ranking diagnostic with `python evaluate.py`.
 
-The score indicates shared terms between the query and catalog entry. It is not a quality, trustworthiness, or learning-outcome rating. This version has no sign-in, learner history, saved lists, personalized learning path, or verified outbound resource links.
+The score indicates shared terms between the query and catalog entry. It is not a quality, trustworthiness, or learning-outcome rating. Search insights are kept only in the current browser session and are not sent to an external analytics service. This version has no sign-in, learner history, saved lists, personalized learning path, or verified outbound resource links.
 
 ## Run locally
 
@@ -61,6 +62,18 @@ CSV records ──> title + subject + description + tags
 ```
 
 The recommender loads the CSV once per app process, fits a `TfidfVectorizer` over record text, transforms each query, computes cosine similarity, removes zero-match rows, applies optional filters, and returns the requested number of ranked records. If there is no matching vocabulary, the app asks the learner to try a broader search.
+
+## Live search insights
+
+After the first search, expand **Live search insights** below the results. The dashboard updates when a new keyword or filter combination is searched and shows:
+
+- total and unique searches in the current session;
+- average recommendation response time;
+- no-result rate;
+- most searched keywords and subjects returned;
+- the ten most recent searches with result counts and latency.
+
+Use **Clear session insights** to remove the in-memory session history. No database or external analytics service is required.
 
 ## Evaluation
 
